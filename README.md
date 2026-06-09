@@ -5,9 +5,10 @@ AI Agent 文件伪删除 Skill。将文件移动到回收站而非彻底删除�
 ## 安装
 
 ```bash
-# 克隆到你的 AI Agent 的 skills 目录下
+# 克隆到你的 AI Agent 的 skills 目录下（--depth 1 只拉最新代码，随后删除嵌套的 .git/ 避免干扰父仓库）
 cd <your-workspace>/.agents/skills/
-git clone https://github.com/wmz46/agent-skill-soft-delete.git soft-delete
+git clone --depth 1 https://github.com/wmz46/agent-skill-soft-delete.git soft-delete
+rm -rf soft-delete/.git
 ```
 
 或者手动复制：
