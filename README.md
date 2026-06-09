@@ -24,8 +24,11 @@ your-workspace/
 ## 使用
 
 ```bash
-# 伪删除
+# 伪删除（移到回收站）
 node scripts/trash.js delete <file1> [file2] ...
+
+# 永久删除（不可还原）
+node scripts/trash.js delete --hard <file1> [file2] ...
 
 # 还原（按 ID）
 node scripts/trash.js restore <id>
@@ -33,8 +36,13 @@ node scripts/trash.js restore <id>
 # 还原（按原始路径，仅还原最新删除的那份）
 node scripts/trash.js restore --by-path <original_path>
 
-# 查看回收站
+# 查看回收站（默认 JSON 格式）
 node scripts/trash.js list
+
+# 查看回收站（可读文本格式）
+node scripts/trash.js list --pretty
+
+# 查看指定日期的回收站
 node scripts/trash.js list --date YYYY-MM-DD
 ```
 
@@ -45,6 +53,7 @@ node scripts/trash.js list --date YYYY-MM-DD
 - 同名文件自动加时间戳后缀防冲突：`file_HHmmss.ext`
 - 每次操作输出 JSON 报告，AI 可直接解析
 - 还原时若目标路径已被占用，自动先伪删除现有文件再还原
+- 自动过期清理：超过 7 天的回收站条目会在每次操作时自动清理，无需手动维护
 
 ## License
 

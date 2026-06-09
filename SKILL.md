@@ -1,6 +1,6 @@
 ---
 name: soft-delete
-description: 当需要删除文件但不想弹出系统确认框，或需要保留可还原的删除记录时使用。
+description: 当需要删除文件时使用。默认伪删除（移入回收站可还原），支持 --hard 参数永久删除。AI 根据用户表述的"彻底/永久"等关键词自动判断。
 ---
 
 # Soft Delete 文件软删除
@@ -14,27 +14,48 @@ description: 当需要删除文件但不想弹出系统确认框，或需要保�
 - 用户要求还原之前删除的文件
 - 用户要求查看回收站内容
 
+### 意图判断（伪删除 vs 真删除）
+
+AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --hard`（真删除）：
+
+| 用户表述 | 推荐行为 | 命令 |
+|----------|----------|------|
+| "删掉"、"删除"、"清理"（无修饰词） | 伪删除 | `delete` |
+| "移到回收站"、"丢进回收站"、"软删除" | 伪删除 | `delete` |
+| "彻底删除"、"永久删除"、"完全删除" | 真删除 | `delete --hard` |
+| "不要了"、"清除"、"抹除"、"销毁" | 真删除 | `delete --hard` |
+
+**安全原则**：不确定时默认伪删除，在回复中附带说明"已将文件移至回收站，如需彻底删除请告诉我"。
+
 ## 环境要求
 
 - 无需额外依赖，使用 Node.js 内置模块
 - 回收站目录：`~/.agent-trash/`（用户主目录下，跨项目共享）
+- 回收站保留天数：默认 7 天，过期自动清理
 
 ## 用法
 
 以下命令在技能根目录下执行（`scripts/` 的父目录即为技能根目录）。
 
-### 伪删除文件
+### 删除文件
 
 ```bash
+# 伪删除（移到回收站）
 node scripts/trash.js delete <file1> [file2] [file3] ...
+
+# 永久删除（不可还原）
+node scripts/trash.js delete --hard <file1> [file2] [file3] ...
 ```
 
 示例：
 ```bash
 node scripts/trash.js delete image1.png image2.jpg report.pdf
+node scripts/trash.js delete --hard temp.zip cache.bin
 ```
 
 **输出格式**（JSON）：
+
+伪删除输出（含 id/trashName，可还原）：
 ```json
 {
   "deleted": [
@@ -50,6 +71,21 @@ node scripts/trash.js delete image1.png image2.jpg report.pdf
 }
 ```
 
+永久删除输出（不含 id/trashName，不可还原）：
+```json
+{
+  "deleted": [
+    {
+      "path": "D:\\workspace\\temp.zip",
+      "size": 102400,
+      "isDirectory": false
+    }
+  ],
+  "errors": [],
+  "summary": "成功永久删除 1 个文件，失败 0 个"
+}
+```
+
 ### 还原文件
 
 ```bash
@@ -60,7 +96,7 @@ node scripts/trash.js restore <id>
 node scripts/trash.js restore --by-path <original_path>
 ```
 
-**自动处理路径冲突**：还原时如果目标路径已存在文件，会先将当前文件伪删除到回收站（标注为"被替换"），再还原文件到原位。这样两不丢失——还原的文件回到原路径，被替换的文件安全地留在回收站。
+**自动处理路径冲突**：还原时如果目标路径已存在文件，会先将当前文件移到临时位置，再执行还原。还原成功后，临时文件才会移入回收站（标注为"被替换"）；如果还原失败，临时文件自动回滚到原路径，保证数据不丢失。
 
 **同名多次删除**：`restore --by-path` 仅还原最新删除的文件到原始路径。较早版本仍留在回收站中，可先 `list` 查看具体 ID 再 `restore <id>` 逐个还原。
 
@@ -72,9 +108,10 @@ node scripts/trash.js list
 
 # 列出指定日期
 node scripts/trash.js list --date 2026-06-09
-```
 
-### 列出回收站内容
+# 显示可读格式（默认输出 JSON 供 AI 解析）
+node scripts/trash.js list --pretty
+```
 
 ## 工作原理
 
@@ -118,9 +155,9 @@ node scripts/trash.js list --date 2026-06-09
 
 ## 工作流程
 
-1. **删除文件时**：使用 `delete` 命令，读取返回的 JSON 报告中 `deleted` 数组，告知用户哪些文件已伪删除
+1. **删除文件时**：根据意图判断规则决定使用 `delete` 还是 `delete --hard`。读取返回的 JSON 报告中 `deleted` 数组，告知用户哪些文件已处理
 2. **还原文件时**：先 `list` 查看回收站，再用 `restore <id>` 或 `restore --by-path <path>` 精确还原，告知用户还原结果
-3. **查看回收站**：使用 `list` 命令查看当前回收站内容
+3. **查看回收站**：使用 `list` 命令查看当前回收站内容（默认 JSON 供 AI 解析，`--pretty` 供人类阅读）
 
 ## 错误处理
 
@@ -131,5 +168,8 @@ node scripts/trash.js list --date 2026-06-09
 ## 注意事项
 
 - **优先使用此 Skill**：当需要删除文件时，应使用此 Skill 而非系统删除命令，避免确认框
-- **JSON 输出**：所有命令执行后输出 JSON 格式报告到 stdout，AI 应解析并展示给用户
+- **JSON 输出**：`delete` 和 `restore` 输出 JSON 格式报告到 stdout，AI 应解析并展示给用户
+- **`list` 命令差异**：`list` 默认输出 JSON（供 AI 解析），加 `--pretty` 显示带 emoji 的可读文本
+- **意图不明时优先伪删除**：AI 不确定用户意图时，默认使用伪删除，回复中附带说明可彻底删除
 - **回收站路径**：`~/.agent-trash/`（用户主目录下），所有项目共享一个回收站
+- **自动过期清理**：回收站中超过 7 天的过期条目会在每次操作时自动清理，无需手动维护
