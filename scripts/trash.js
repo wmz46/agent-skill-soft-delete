@@ -5,6 +5,7 @@ const os = require("os");
 
 const RECYCLE_BASE = path.join(os.homedir(), ".agent-trash");
 const MAX_AGE_DAYS = 7;
+const NOTE_REPLACED = "因还原操作被替换";
 
 function getTodayStr() {
   const d = new Date();
@@ -83,54 +84,12 @@ function moveFile(src, dest) {
     fs.renameSync(src, dest);
   } catch (err) {
     if (err.code === "EXDEV") {
-      copyRecursiveSync(src, dest);
-      removeRecursiveSync(src);
+      fs.cpSync(src, dest, { recursive: true });
+      fs.rmSync(src, { recursive: true });
     } else {
       throw err;
     }
   }
-}
-
-function copyRecursiveSync(src, dest) {
-  const stat = fs.statSync(src);
-  if (stat.isDirectory()) {
-    ensureDir(dest);
-    for (const item of fs.readdirSync(src)) {
-      copyRecursiveSync(
-        path.join(src, item),
-        path.join(dest, item)
-      );
-    }
-  } else {
-    fs.copyFileSync(src, dest);
-  }
-}
-
-function removeRecursiveSync(target) {
-  const stat = fs.statSync(target);
-  if (stat.isDirectory()) {
-    for (const item of fs.readdirSync(target)) {
-      removeRecursiveSync(path.join(target, item));
-    }
-    fs.rmdirSync(target);
-  } else {
-    fs.unlinkSync(target);
-  }
-}
-
-function getDirectorySize(dirPath) {
-  let totalSize = 0;
-  const items = fs.readdirSync(dirPath);
-  for (const item of items) {
-    const itemPath = path.join(dirPath, item);
-    const stat = fs.statSync(itemPath);
-    if (stat.isDirectory()) {
-      totalSize += getDirectorySize(itemPath);
-    } else {
-      totalSize += stat.size;
-    }
-  }
-  return totalSize;
 }
 
 function cleanupExpiredEntries() {
@@ -144,12 +103,9 @@ function cleanupExpiredEntries() {
     const dirDate = new Date(dirName + "T23:59:59");
     const diffDays = (now - dirDate) / (1000 * 60 * 60 * 24);
     if (diffDays > MAX_AGE_DAYS) {
-      removeRecursiveSync(dirPath);
+      fs.rmSync(dirPath, { recursive: true });
       cleaned++;
     }
-  }
-  if (cleaned > 0) {
-    console.error(`[清理] 自动清理了 ${cleaned} 个超过 ${MAX_AGE_DAYS} 天的过期日期目录`);
   }
   return cleaned;
 }
@@ -214,7 +170,7 @@ function formatListOutput(entries) {
     }
     const size = e.size ? formatBytes(e.size) : "?";
     const type = e.isDirectory ? "📁" : "📄";
-    const tag = e.note === "因还原操作被替换" ? " (被替换)" : "";
+    const tag = e.note === NOTE_REPLACED ? " (被替换)" : "";
     lines.push(`  ${type} [${e.id}] ${e.trashName}${tag} (原: ${e.originalPath}) ${size}`);
   }
   return lines.join("\n");
@@ -232,8 +188,8 @@ function cmdDelete(filePaths, hardDelete) {
       try {
         const stat = fs.statSync(absPath);
         const isDirectory = stat.isDirectory();
-        const size = isDirectory ? getDirectorySize(absPath) : stat.size;
-        removeRecursiveSync(absPath);
+        const size = isDirectory ? null : stat.size;
+        fs.rmSync(absPath, { recursive: true });
         result.deleted.push({ path: absPath, size, isDirectory });
       } catch (e) {
         result.errors.push({ path: absPath, error: e.message });
@@ -241,7 +197,7 @@ function cmdDelete(filePaths, hardDelete) {
     }
     result.summary = `成功永久删除 ${result.deleted.length} 个文件，失败 ${result.errors.length} 个`;
     console.log(JSON.stringify(result, null, 2));
-    return;
+    return result.errors.length > 0 ? 1 : 0;
   }
 
   const todayDir = getTodayDir();
@@ -270,7 +226,7 @@ function cmdDelete(filePaths, hardDelete) {
 
     try {
       const isDirectory = stat.isDirectory();
-      const entrySize = isDirectory ? getDirectorySize(absPath) : stat.size;
+      const entrySize = isDirectory ? null : stat.size;
       moveFile(absPath, destPath);
       const entry = {
         id,
@@ -290,6 +246,7 @@ function cmdDelete(filePaths, hardDelete) {
   saveManifest(todayDir, manifest);
   result.summary = `成功伪删除 ${result.deleted.length} 个文件，失败 ${result.errors.length} 个`;
   console.log(JSON.stringify(result, null, 2));
+  return result.errors.length > 0 ? 1 : 0;
 }
 
 function cmdRestore(identifier, mode) {
@@ -300,14 +257,14 @@ function cmdRestore(identifier, mode) {
     const found = findEntryById(identifier);
     if (!found) {
       console.log(JSON.stringify({ error: `未找到 ID 为 "${identifier}" 的条目` }));
-      return;
+      return 1;
     }
     entries = [{ ...found.entry, dateDir: found.dateDir }];
   } else if (mode === "path") {
     const allEntries = findEntriesByOriginalPath(identifier);
     if (allEntries.length === 0) {
       console.log(JSON.stringify({ error: `未找到原始路径为 "${identifier}" 的条目` }));
-      return;
+      return 1;
     }
     allEntries.sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
     entries = [allEntries[0]];
@@ -326,6 +283,13 @@ function cmdRestore(identifier, mode) {
 
       if (!fs.existsSync(trashPath)) {
         result.errors.push({ id: e.id, error: "回收站中文件已丢失", originalPath: origPath });
+        const dirPath = path.join(RECYCLE_BASE, e.dateDir);
+        const manifest = loadManifest(dirPath);
+        manifest.entries = manifest.entries.filter(entry => entry.id !== e.id);
+        saveManifest(dirPath, manifest);
+        if (manifest.entries.length === 0) {
+          try { fs.rmSync(dirPath, { recursive: true }); } catch (_) {}
+        }
         continue;
       }
 
@@ -335,7 +299,7 @@ function cmdRestore(identifier, mode) {
         tempPath = path.join(origDir, `.~restore-temp-${e.id}${path.extname(origPath)}`);
         tempStat = fs.statSync(origPath);
         if (tempStat.isDirectory()) {
-          tempStat = { size: getDirectorySize(origPath), isDirectory: true };
+          tempStat = { size: null, isDirectory: true };
         }
         moveFile(origPath, tempPath);
       }
@@ -358,7 +322,7 @@ function cmdRestore(identifier, mode) {
             deletedAt: getNowISO(),
             size: tempStat.size,
             isDirectory: tempStat.isDirectory(),
-            note: "因还原操作被替换"
+            note: NOTE_REPLACED
           });
           saveManifest(todayDir, manifest);
           result.replaced.push({ id: replacedId, originalPath: origPath, trashName: replacedTrashName, dateDir: getTodayStr() });
@@ -375,7 +339,7 @@ function cmdRestore(identifier, mode) {
       saveManifest(dirPath, manifest);
       if (manifest.entries.length === 0) {
         try {
-          removeRecursiveSync(dirPath);
+          fs.rmSync(dirPath, { recursive: true });
         } catch (_) {}
       }
     } catch (ex) {
@@ -396,6 +360,7 @@ function cmdRestore(identifier, mode) {
 
   result.summary = `成功还原 ${result.restored.length} 个文件${result.replaced.length > 0 ? `，替换了 ${result.replaced.length} 个现有文件` : ""}，失败 ${result.errors.length} 个`;
   console.log(JSON.stringify(result, null, 2));
+  return result.errors.length > 0 ? 1 : 0;
 }
 
 function cmdList(dateFilter, pretty) {
@@ -408,6 +373,7 @@ function cmdList(dateFilter, pretty) {
   } else {
     console.log(JSON.stringify({ entries, total: entries.length }, null, 2));
   }
+  return 0;
 }
 
 function printUsage() {
@@ -431,6 +397,8 @@ function main() {
 
   const cmd = args[0];
 
+  let exitCode = 0;
+
   switch (cmd) {
     case "delete": {
       const deleteArgs = args.slice(1);
@@ -440,7 +408,7 @@ function main() {
         console.log("用法: node scripts/trash.js delete [--hard] <file1> [file2] ...");
         process.exit(1);
       }
-      cmdDelete(filePaths, hardDelete);
+      exitCode = cmdDelete(filePaths, hardDelete);
       break;
     }
 
@@ -451,9 +419,9 @@ function main() {
           console.log("用法: node scripts/trash.js restore --by-path <original_path>");
           process.exit(1);
         }
-        cmdRestore(pathArg, "path");
+        exitCode = cmdRestore(pathArg, "path");
       } else if (args[1]) {
-        cmdRestore(args[1], "id");
+        exitCode = cmdRestore(args[1], "id");
       } else {
         console.log("用法: node scripts/trash.js restore <id> | --by-path <path>");
         process.exit(1);
@@ -473,7 +441,7 @@ function main() {
         }
         dateFilter = nextVal;
       }
-      cmdList(dateFilter, pretty);
+      exitCode = cmdList(dateFilter, pretty);
       break;
     }
 
@@ -481,6 +449,8 @@ function main() {
       printUsage();
       process.exit(1);
   }
+
+  process.exit(exitCode);
 }
 
 main();

@@ -7,6 +7,17 @@ description: 当需要删除文件时使用。默认伪删除（移入回收站�
 
 将文件移动到 `~/.agent-trash/` 回收站目录（用户主目录下），按日期自动分组存储。支持还原和查看。适用于 AI 需要清理文件但不希望弹出系统确认框的场景。
 
+## 脚本路径定位
+
+本 skill 的脚本位于 `scripts/trash.js`，存放于 skill 目录下。
+AI 应通过 skill 的 `location` 字段拼接出脚本的绝对路径：
+
+```
+<script.location>/scripts/trash.js
+```
+
+所有命令行示例均以此路径为基础。
+
 ## 何时触发
 
 - 用户要求删除文件或清理文件
@@ -25,7 +36,7 @@ AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --
 | "彻底删除"、"永久删除"、"完全删除" | 真删除 | `delete --hard` |
 | "不要了"、"清除"、"抹除"、"销毁" | 真删除 | `delete --hard` |
 
-**安全原则**：不确定时默认伪删除，在回复中附带说明"已将文件移至回收站，如需彻底删除请告诉我"。
+**安全原则**：不确定时默认伪删除，回复需附带说明，格式参考下文工作流程。
 
 ## 环境要求
 
@@ -35,22 +46,22 @@ AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --
 
 ## 用法
 
-以下命令在技能根目录下执行（`scripts/` 的父目录即为技能根目录）。
+以下命令中 `<script>` 表示 `scripts/trash.js` 的绝对路径（即 `<skill.location>/scripts/trash.js`）。
 
 ### 删除文件
 
 ```bash
 # 伪删除（移到回收站）
-node scripts/trash.js delete <file1> [file2] [file3] ...
+<script> delete <file1> [file2] [file3] ...
 
 # 永久删除（不可还原）
-node scripts/trash.js delete --hard <file1> [file2] [file3] ...
+<script> delete --hard <file1> [file2] [file3] ...
 ```
 
 示例：
 ```bash
-node scripts/trash.js delete image1.png image2.jpg report.pdf
-node scripts/trash.js delete --hard temp.zip cache.bin
+<script> delete image1.png image2.jpg report.pdf
+<script> delete --hard temp.zip cache.bin
 ```
 
 **输出格式**（JSON）：
@@ -61,7 +72,7 @@ node scripts/trash.js delete --hard temp.zip cache.bin
   "deleted": [
     {
       "id": "d20260609143052-abc123",
-      "path": "D:\\workspace\\image1.png",
+      "path": "/home/user/workspace/image1.png",
       "trashName": "image1_20260609_143052.png",
       "dateDir": "2026-06-09"
     }
@@ -76,7 +87,7 @@ node scripts/trash.js delete --hard temp.zip cache.bin
 {
   "deleted": [
     {
-      "path": "D:\\workspace\\temp.zip",
+      "path": "/home/user/workspace/temp.zip",
       "size": 102400,
       "isDirectory": false
     }
@@ -90,10 +101,10 @@ node scripts/trash.js delete --hard temp.zip cache.bin
 
 ```bash
 # 按 ID 还原
-node scripts/trash.js restore <id>
+<script> restore <id>
 
 # 按原始路径还原（同名文件被删多次时，只还原最新删除的那份）
-node scripts/trash.js restore --by-path <original_path>
+<script> restore --by-path <original_path>
 ```
 
 **自动处理路径冲突**：还原时如果目标路径已存在文件，会先将当前文件移到临时位置，再执行还原。还原成功后，临时文件才会移入回收站（标注为"被替换"）；如果还原失败，临时文件自动回滚到原路径，保证数据不丢失。
@@ -104,13 +115,13 @@ node scripts/trash.js restore --by-path <original_path>
 
 ```bash
 # 列出所有日期
-node scripts/trash.js list
+<script> list
 
 # 列出指定日期
-node scripts/trash.js list --date 2026-06-09
+<script> list --date 2026-06-09
 
 # 显示可读格式（默认输出 JSON 供 AI 解析）
-node scripts/trash.js list --pretty
+<script> list --pretty
 ```
 
 ## 工作原理
@@ -118,12 +129,12 @@ node scripts/trash.js list --pretty
 ### 目录结构
 
 ```
-~/.agent-trash\
-├── 2026-06-09\
+~/.agent-trash/
+├── 2026-06-09/
 │   ├── manifest.json
 │   ├── image1_20260609_143052.png
 │   └── report_20260609_150000.pdf
-├── 2026-06-10\
+├── 2026-06-10/
 │   └── ...
 └── ...
 ```
@@ -133,7 +144,7 @@ node scripts/trash.js list --pretty
 1. **自动日期分组**：根据当前系统时间自动创建日期子目录（YYYY-MM-DD）
 2. **防冲突命名**：同名文件自动添加时间戳后缀（`name_HHmmss.ext`）
 3. **元数据记录**：每个日期目录内的 `manifest.json` 记录原始路径、ID、删除时间
-4. **跨盘符支持**：自动处理不同磁盘间的文件移动
+4. **跨文件系统支持**：自动处理不同磁盘/分区间的文件移动
 
 ### manifest.json 格式
 
@@ -143,7 +154,7 @@ node scripts/trash.js list --pretty
   "entries": [
     {
       "id": "d20260609143052-abc123",
-      "originalPath": "D:\\workspace\\image.png",
+      "originalPath": "/home/user/workspace/image.png",
       "trashName": "image_20260609_143052.png",
       "deletedAt": "2026-06-09T14:30:52.000Z",
       "size": 102400,
@@ -155,9 +166,49 @@ node scripts/trash.js list --pretty
 
 ## 工作流程
 
-1. **删除文件时**：根据意图判断规则决定使用 `delete` 还是 `delete --hard`。读取返回的 JSON 报告中 `deleted` 数组，告知用户哪些文件已处理
-2. **还原文件时**：先 `list` 查看回收站，再用 `restore <id>` 或 `restore --by-path <path>` 精确还原，告知用户还原结果
-3. **查看回收站**：使用 `list` 命令查看当前回收站内容（默认 JSON 供 AI 解析，`--pretty` 供人类阅读）
+### 删除文件
+
+1. 根据意图判断规则决定使用 `delete` 还是 `delete --hard`
+2. 执行命令并解析返回的 JSON
+3. 回复格式：
+
+   **伪删除：**
+   > 已将以下文件移至回收站（7 天内可还原）：
+   > ‐ `image1.png`
+   > ‐ `report.pdf`
+   > 如需彻底删除请告诉我。
+
+   **真删除：**
+   > 已永久删除以下文件（不可还原）：
+   > ‐ `temp.zip` (100 KB)
+   > ‐ `cache.bin`
+
+   如遇错误，在回复中附带说明哪个文件失败了及原因。
+
+### 还原文件
+
+1. 先确认用户想还原哪个文件。可先 `list` 查看回收站内容
+2. 使用 `restore <id>` 或 `restore --by-path <path>` 执行还原
+3. 解析返回 JSON，回复格式：
+
+   > 已还原 `image1.png`。
+   > （如适用）原位置的旧文件已自动移至回收站。
+
+   如未找到条目：
+   > 在回收站中未找到文件。
+
+### 查看回收站
+
+1. 使用 `list` 命令查看回收站内容（默认输出 JSON 供 AI 解析）
+2. 向用户呈现摘要：
+
+   > 回收站中有 3 个文件：
+   > ‐ image1.png (2026-06-09, 100 KB)
+   > ‐ report.pdf (2026-06-09, 2.3 MB)
+   > ‐ temp.zip (2026-06-10, 500 KB)
+
+   如回收站为空则回复：
+   > 回收站为空。
 
 ## 错误处理
 
@@ -173,3 +224,4 @@ node scripts/trash.js list --pretty
 - **意图不明时优先伪删除**：AI 不确定用户意图时，默认使用伪删除，回复中附带说明可彻底删除
 - **回收站路径**：`~/.agent-trash/`（用户主目录下），所有项目共享一个回收站
 - **自动过期清理**：回收站中超过 7 天的过期条目会在每次操作时自动清理，无需手动维护
+- **跨平台**：`~/.agent-trash/` 在 Windows 上对应 `C:\Users\<用户名>\.agent-trash\`，Linux/macOS 对应 `/home/<用户名>/.agent-trash/`
