@@ -89,9 +89,11 @@ function collectSourceFiles(source) {
     return [{ relative: fileName, srcAbs: absSource }];
   }
 
+  const IGNORE = new Set(['.git', '.gitignore', 'node_modules']);
   const files = [];
   function walk(dir) {
     for (const entry of fs.readdirSync(dir)) {
+      if (IGNORE.has(entry)) continue;
       const fullPath = path.join(dir, entry);
       if (isDirectory(fullPath)) {
         walk(fullPath);
