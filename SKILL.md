@@ -9,11 +9,18 @@ description: 当需要删除文件、清理临时文件、移除过期文件或�
 
 ## 脚本路径定位
 
-本 skill 的脚本位于 `scripts/trash.js`，存放于 skill 目录下。
+本 skill 提供两个脚本，存放于 skill 目录下的 `scripts/` 中：
+
+| 脚本 | 说明 |
+|------|------|
+| `scripts/trash.js` | 文件软删除（移入回收站 `~/.agent-trash/`），支持还原/查看 |
+| `scripts/sync.js` | 技能同步（先软删旧文件再拷贝，用于同步项目级与用户级技能） |
+
 AI 应通过 skill 的 `location` 字段拼接出脚本的绝对路径：
 
 ```
 <script.location>/scripts/trash.js
+<script.location>/scripts/sync.js
 ```
 
 所有命令行示例均以此路径为基础。
@@ -110,6 +117,33 @@ AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --
 **自动处理路径冲突**：还原时如果目标路径已存在文件，会先将当前文件移到临时位置，再执行还原。还原成功后，临时文件才会移入回收站（标注为"被替换"）；如果还原失败，临时文件自动回滚到原路径，保证数据不丢失。
 
 **同名多次删除**：`restore --by-path` 仅还原最新删除的文件到原始路径。较早版本仍留在回收站中，可先 `list` 查看具体 ID 再 `restore <id>` 逐个还原。
+
+### 技能同步
+
+将源目录/文件同步到目标位置，同步前先使用 trash.js 将目标位置的旧文件软删除（移入 `~/.agent-trash/`），再拷贝新文件。
+
+适用于同步项目级技能目录（`skills/`）和用户级技能目录（`~/.agents/skills/`）之间的文件。
+
+```bash
+# 同步目录（目标旧文件自动软删）
+<script> sync <源路径> <目标路径>
+
+# 预览模式（仅显示变更，不执行）
+<script> sync <源路径> <目标路径> --dry-run
+
+# 永久删除旧文件（不可还原）
+<script> sync <源路径> <目标路径> --hard
+```
+
+示例：
+
+```bash
+# 将项目级生图技能同步到用户级（先软删用户级旧文件再覆盖）
+<script> sync skills/agnes-image-generate ~/.agents/skills/agnes-image-generate
+
+# 预览会同步哪些文件
+<script> sync skills/abc-composer ~/.agents/skills/abc-composer --dry-run
+```
 
 ### 列出回收站内容
 
@@ -209,6 +243,26 @@ AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --
 
    如回收站为空则回复：
    > 回收站为空。
+
+
+### 技能同步
+
+适用于以下场景：
+- **更新用户级技能**：项目级技能修改后，同步到 `~/.agents/skills/` 使用户级技能保持最新
+- **备份项目级技能**：用户级技能修改后，同步回项目 `skills/` 目录
+
+执行流程：
+
+1. 确定同步方向（项目→用户 或 用户→项目）
+2. 使用 **AskUserQuestion** 工具向用户确认同步方向和内容
+3. 用户确认后，执行 `sync` 命令，先软删目标旧文件再拷贝
+4. 回复格式：
+
+   > ✅ 同步完成：
+   > ‐ 已拷贝 N 个文件
+   > ‐ 已软删 M 个旧文件（可从回收站还原）
+
+   如使用 `--hard`，回复中需提醒不可还原。
 
 ## 错误处理
 
