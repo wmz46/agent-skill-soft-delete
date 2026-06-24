@@ -111,6 +111,7 @@ function runSync(source, dest, { dryRun, hardDelete }) {
   const absDest = resolve(dest);
   const files = collectSourceFiles(source);
   const absSource = resolve(source);
+  const isSingleSrc = !isDirectory(absSource);
 
   console.log('\ud83d\udccb 共发现 ' + files.length + ' 个待同步文件');
   if (dryRun) console.log('\ud83d\udd0d [DRY RUN] 仅预览，不执行任何操作\n');
@@ -119,7 +120,8 @@ function runSync(source, dest, { dryRun, hardDelete }) {
   const stats = { deleted: 0, copied: 0, errors: 0 };
 
   for (const file of files) {
-    const destFile = resolve(absDest, file.relative);
+    // 单文件源时 dest 本身就是目标路径，不再拼接 relative
+    const destFile = isSingleSrc ? absDest : resolve(absDest, file.relative);
     const destExists = fs.existsSync(destFile);
 
     // 第 1 步：软删目标旧文件
