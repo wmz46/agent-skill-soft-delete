@@ -1,6 +1,6 @@
 ---
 name: soft-delete
-description: 当需要操作文件（删除、拷贝、移动、清理临时文件、静默删除或同步目录）时使用。应优先调用 trash.js / sync.js 脚本，而非直接执行 Node.js/PowerShell 文件操作。默认伪删除（移入回收站可还原），支持 --hard 参数永久删除。AI 根据用户表述的"彻底/永久"等关键词自动判断。
+description: 当需要删除文件或目录时使用。将文件移入回收站可还原，而非永久删除。触发词包括"删除"、"删掉"、"清理"、"回收站"、"还原"等。
 ---
 
 # Soft Delete 文件软删除
@@ -9,18 +9,16 @@ description: 当需要操作文件（删除、拷贝、移动、清理临时文�
 
 ## 脚本路径定位
 
-本 skill 提供两个脚本，存放于 skill 目录下的 `scripts/` 中：
+本 skill 提供一个脚本，存放于 skill 目录下的 `scripts/` 中：
 
 | 脚本 | 说明 |
 |------|------|
 | `scripts/trash.js` | 文件软删除（移入回收站 `~/.agent-trash/`），支持还原/查看 |
-| `scripts/sync.js` | 技能同步（先软删旧文件再拷贝，用于同步项目级与用户级技能） |
 
 AI 应通过 skill 的 `location` 字段拼接出脚本的绝对路径：
 
 ```
 <script.location>/scripts/trash.js
-<script.location>/scripts/sync.js
 ```
 
 所有命令行示例均以此路径为基础。
@@ -32,18 +30,7 @@ AI 应通过 skill 的 `location` 字段拼接出脚本的绝对路径：
 - 用户要求还原之前删除的文件
 - 用户要求查看回收站内容
 
-### 意图判断（伪删除 vs 真删除）
-
-AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --hard`（真删除）：
-
-| 用户表述 | 推荐行为 | 命令 |
-|----------|----------|------|
-| "删掉"、"删除"、"清理"（无修饰词） | 伪删除 | `delete` |
-| "移到回收站"、"丢进回收站"、"软删除" | 伪删除 | `delete` |
-| "彻底删除"、"永久删除"、"完全删除" | 真删除 | `delete --hard` |
-| "不要了"、"清除"、"抹除"、"销毁" | 真删除 | `delete --hard` |
-
-**安全原则**：不确定时默认伪删除，回复需附带说明，格式参考下文工作流程。
+所有删除操作均移入回收站 `~/.agent-trash/`，7 天内可还原。不支持永久删除。
 
 ## 环境要求
 
@@ -58,22 +45,16 @@ AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --
 ### 删除文件
 
 ```bash
-# 伪删除（移到回收站）
 <script> delete <file1> [file2] [file3] ...
-
-# 永久删除（不可还原）
-<script> delete --hard <file1> [file2] [file3] ...
 ```
 
 示例：
 ```bash
 <script> delete image1.png image2.jpg report.pdf
-<script> delete --hard temp.zip cache.bin
 ```
 
 **输出格式**（JSON）：
 
-伪删除输出（含 id/trashName，可还原）：
 ```json
 {
   "deleted": [
@@ -85,22 +66,7 @@ AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --
     }
   ],
   "errors": [],
-  "summary": "成功伪删除 1 个文件，失败 0 个"
-}
-```
-
-永久删除输出（不含 id/trashName，不可还原）：
-```json
-{
-  "deleted": [
-    {
-      "path": "/home/user/workspace/temp.zip",
-      "size": 102400,
-      "isDirectory": false
-    }
-  ],
-  "errors": [],
-  "summary": "成功永久删除 1 个文件，失败 0 个"
+  "summary": "成功删除 1 个文件，失败 0 个"
 }
 ```
 
@@ -118,34 +84,7 @@ AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --
 
 **同名多次删除**：`restore --by-path` 仅还原最新删除的文件到原始路径。较早版本仍留在回收站中，可先 `list` 查看具体 ID 再 `restore <id>` 逐个还原。
 
-### 技能同步
-
-将源目录/文件同步到目标位置，同步前先使用 trash.js 将目标位置的旧文件软删除（移入 `~/.agent-trash/`），再拷贝新文件。
-
-适用于同步项目级技能目录（`skills/`）和用户级技能目录（`~/.agents/skills/`）之间的文件。
-
-```bash
-# 同步目录（目标旧文件自动软删）
-<script> sync <源路径> <目标路径>
-
-# 预览模式（仅显示变更，不执行）
-<script> sync <源路径> <目标路径> --dry-run
-
-# 永久删除旧文件（不可还原）
-<script> sync <源路径> <目标路径> --hard
-```
-
-示例：
-
-```bash
-# 将项目级生图技能同步到用户级（先软删用户级旧文件再覆盖）
-<script> sync skills/agnes-image-generate ~/.agents/skills/agnes-image-generate
-
-# 预览会同步哪些文件
-<script> sync skills/abc-composer ~/.agents/skills/abc-composer --dry-run
-```
-
-### 列出回收站内容
+### 查看回收站
 
 ```bash
 # 列出所有日期
@@ -202,20 +141,13 @@ AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --
 
 ### 删除文件
 
-1. 根据意图判断规则决定使用 `delete` 还是 `delete --hard`
+1. 执行 `delete` 命令
 2. 执行命令并解析返回的 JSON
 3. 回复格式：
 
-   **伪删除：**
    > 已将以下文件移至回收站（7 天内可还原）：
    > ‐ `image1.png`
    > ‐ `report.pdf`
-   > 如需彻底删除请告诉我。
-
-   **真删除：**
-   > 已永久删除以下文件（不可还原）：
-   > ‐ `temp.zip` (100 KB)
-   > ‐ `cache.bin`
 
    如遇错误，在回复中附带说明哪个文件失败了及原因。
 
@@ -244,25 +176,6 @@ AI 根据用户表述自动判断使用 `delete`（伪删除）还是 `delete --
    如回收站为空则回复：
    > 回收站为空。
 
-
-### 技能同步
-
-适用于以下场景：
-- **更新用户级技能**：项目级技能修改后，同步到 `~/.agents/skills/` 使用户级技能保持最新
-- **备份项目级技能**：用户级技能修改后，同步回项目 `skills/` 目录
-
-执行流程：
-
-1. 确定同步方向（项目→用户 或 用户→项目）
-2. 使用 **AskUserQuestion** 工具向用户确认同步方向和内容
-3. 用户确认后，执行 `sync` 命令，先软删目标旧文件再拷贝
-4. 回复格式：
-
-   > ✅ 同步完成：
-   > ‐ 已拷贝 N 个文件
-   > ‐ 已软删 M 个旧文件（可从回收站还原）
-
-   如使用 `--hard`，回复中需提醒不可还原。
 
 ## 错误处理
 

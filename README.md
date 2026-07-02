@@ -25,11 +25,8 @@ your-workspace/
 ## 使用
 
 ```bash
-# 伪删除（移到回收站）
+# 删除（移到回收站，7 天内可还原）
 node scripts/trash.js delete <file1> [file2] ...
-
-# 永久删除（不可还原）
-node scripts/trash.js delete --hard <file1> [file2] ...
 
 # 还原（按 ID）
 node scripts/trash.js restore <id>

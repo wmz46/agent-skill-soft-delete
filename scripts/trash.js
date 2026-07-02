@@ -176,30 +176,7 @@ function formatListOutput(entries) {
   return lines.join("\n");
 }
 
-function cmdDelete(filePaths, hardDelete) {
-  if (hardDelete) {
-    const result = { deleted: [], errors: [] };
-    for (const rawPath of filePaths) {
-      const absPath = path.resolve(rawPath);
-      if (!fs.existsSync(absPath)) {
-        result.errors.push({ path: absPath, error: "文件不存在" });
-        continue;
-      }
-      try {
-        const stat = fs.statSync(absPath);
-        const isDirectory = stat.isDirectory();
-        const size = isDirectory ? null : stat.size;
-        fs.rmSync(absPath, { recursive: true });
-        result.deleted.push({ path: absPath, size, isDirectory });
-      } catch (e) {
-        result.errors.push({ path: absPath, error: e.message });
-      }
-    }
-    result.summary = `成功永久删除 ${result.deleted.length} 个文件，失败 ${result.errors.length} 个`;
-    console.log(JSON.stringify(result, null, 2));
-    return result.errors.length > 0 ? 1 : 0;
-  }
-
+function cmdDelete(filePaths) {
   const todayDir = getTodayDir();
   ensureDir(todayDir);
   const manifest = loadManifest(todayDir);
@@ -244,7 +221,7 @@ function cmdDelete(filePaths, hardDelete) {
   }
 
   saveManifest(todayDir, manifest);
-  result.summary = `成功伪删除 ${result.deleted.length} 个文件，失败 ${result.errors.length} 个`;
+  result.summary = `成功删除 ${result.deleted.length} 个文件，失败 ${result.errors.length} 个`;
   console.log(JSON.stringify(result, null, 2));
   return result.errors.length > 0 ? 1 : 0;
 }
@@ -380,7 +357,7 @@ function printUsage() {
   console.log(`用法: node scripts/trash.js <子命令> [参数]
 
 子命令:
-  delete [--hard] <file1> [file2] ...    伪删除文件/目录（--hard 永久删除）
+  delete <file1> [file2] ...              软删除文件/目录（移到回收站）
   restore <id>                            按 ID 还原
   restore --by-path <path>                按原始路径还原（同名文件仅还原最新删除的那份）
   list [--date YYYY-MM-DD] [--pretty]    列出回收站内容（默认 JSON，--pretty 输出可读文本）`);
@@ -401,14 +378,12 @@ function main() {
 
   switch (cmd) {
     case "delete": {
-      const deleteArgs = args.slice(1);
-      const hardDelete = deleteArgs.includes("--hard");
-      const filePaths = deleteArgs.filter(a => a !== "--hard");
+      const filePaths = args.slice(1);
       if (filePaths.length === 0) {
-        console.log("用法: node scripts/trash.js delete [--hard] <file1> [file2] ...");
+        console.log("用法: node scripts/trash.js delete <file1> [file2] ...");
         process.exit(1);
       }
-      exitCode = cmdDelete(filePaths, hardDelete);
+      exitCode = cmdDelete(filePaths);
       break;
     }
 
