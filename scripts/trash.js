@@ -237,6 +237,21 @@ function cmdRestore(identifier, mode) {
       return 1;
     }
     entries = [{ ...found.entry, dateDir: found.dateDir }];
+  } else if (mode === "ids") {
+    // 批量还原：逐个按 ID 查找，未找到的 ID 单独记录错误
+    const missing = [];
+    for (const id of identifier) {
+      const found = findEntryById(id);
+      if (found) {
+        entries.push({ ...found.entry, dateDir: found.dateDir });
+      } else {
+        missing.push(id);
+      }
+    }
+    if (missing.length > 0) {
+      console.log(JSON.stringify({ error: `未找到以下 ID 的条目: ${missing.join(", ")}` }));
+      return 1;
+    }
   } else if (mode === "path") {
     const allEntries = findEntriesByOriginalPath(identifier);
     if (allEntries.length === 0) {
@@ -358,7 +373,7 @@ function printUsage() {
 
 子命令:
   delete <file1> [file2] ...              软删除文件/目录（移到回收站）
-  restore <id>                            按 ID 还原
+  restore <id1> [id2] ...                 按 ID 还原（支持多个 ID 批量还原）
   restore --by-path <path>                按原始路径还原（同名文件仅还原最新删除的那份）
   list [--date YYYY-MM-DD] [--pretty]    列出回收站内容（默认 JSON，--pretty 输出可读文本）`);
 }
@@ -396,9 +411,11 @@ function main() {
         }
         exitCode = cmdRestore(pathArg, "path");
       } else if (args[1]) {
-        exitCode = cmdRestore(args[1], "id");
+        // 支持单个或多个 ID 批量还原：restore <id1> [id2] ...
+        const ids = args.slice(1);
+        exitCode = cmdRestore(ids, "ids");
       } else {
-        console.log("用法: node scripts/trash.js restore <id> | --by-path <path>");
+        console.log("用法: node scripts/trash.js restore <id1> [id2] ... | --by-path <path>");
         process.exit(1);
       }
       break;

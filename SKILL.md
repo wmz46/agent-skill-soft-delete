@@ -73,8 +73,8 @@ AI 应通过 skill 的 `location` 字段拼接出脚本的绝对路径：
 ### 还原文件
 
 ```bash
-# 按 ID 还原
-<script> restore <id>
+# 按 ID 还原（支持多个 ID 批量还原）
+<script> restore <id1> [id2] [id3] ...
 
 # 按原始路径还原（同名文件被删多次时，只还原最新删除的那份）
 <script> restore --by-path <original_path>
@@ -154,7 +154,7 @@ AI 应通过 skill 的 `location` 字段拼接出脚本的绝对路径：
 ### 还原文件
 
 1. 先确认用户想还原哪个文件。可先 `list` 查看回收站内容
-2. 使用 `restore <id>` 或 `restore --by-path <path>` 执行还原
+2. 使用 `restore <id1> [id2] ...` 或 `restore --by-path <path>` 执行还原
 3. 解析返回 JSON，回复格式：
 
    > 已还原 `image1.png`。
