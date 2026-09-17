@@ -7,7 +7,30 @@ description: MUST：当需要删除文件或目录时，必须使用本技能。
 
 将文件移动到 `~/.agent-trash/` 回收站目录（用户主目录下），按日期自动分组存储。支持还原和查看。适用于 AI 需要清理文件但不希望弹出系统确认框的场景。
 
-## 脚本路径定位
+## 工具优先、脚本替底
+
+> **优先使用原生工具**（`soft_delete` / `restore_trash` / `list_trash`）——
+> 进程内执行，无 I/O 开销，支持结构化参数和富返回值。
+> **原生工具不可用时**（如 remote-control 未加载、其他 Agent 无此工具）
+> 降级使用脚本 `<skill>/scripts/trash.js`（行为一致，JSON 输出）。
+
+**路由检测：** 尝试调用 `soft_delete`（或 `list_trash`）→ 报错/不可用 → 降级 `trash.js`。
+检测一次后缓存结果，后续操作统一走同一路径。
+
+**原生工具参数（替代脚本命令）：**
+
+| 脚本命令 | 原生工具 | 参数 |
+|---|---|---|
+| `trash.js delete <paths...>` | `soft_delete` | `paths: ["path1", "path2"]`（绝对或相对路径数组） |
+| `trash.js restore <ids...>` | `restore_trash` | `ids: ["id1", "id2"]` |
+| `trash.js restore --by-path <path>` | `restore_trash` | `by_path: "/original/path"` |
+| `trash.js list` | `list_trash` | 无必填参数 |
+| `trash.js list --date 2026-06-09` | `list_trash` | 内置按日期过滤 |
+
+> 脚本模式下命令通过 pwsh 执行（`node <skill>/scripts/trash.js delete ...`），
+> 原生工具通过 agent tool call 直接调用（无需 pwsh 中转）。
+
+## 脚本路径定位（替底用）
 
 本 skill 提供一个脚本，存放于 skill 目录下的 `scripts/` 中：
 
@@ -185,8 +208,8 @@ AI 应通过 skill 的 `location` 字段拼接出脚本的绝对路径：
 
 ## 注意事项
 
-- **优先使用此 Skill**：当需要删除文件时，应使用此 Skill 而非系统删除命令，避免确认框
-- **JSON 输出**：`delete` 和 `restore` 输出 JSON 格式报告到 stdout，AI 应解析并展示给用户
+- **优先使用此 Skill**：当需要删除文件时，应使用此 Skill 的原生工具（`soft_delete`/`restore_trash`/`list_trash`）而非系统删除命令，避免确认框；工具不可用时用脚本替底
+- **JSON 输出**：原生工具返回结构化结果；脚本 `delete` 和 `restore` 输出 JSON 格式报告到 stdout，AI 应解析并展示给用户
 - **`list` 命令差异**：`list` 默认输出 JSON（供 AI 解析），加 `--pretty` 显示带 emoji 的可读文本
 - **意图不明时优先伪删除**：AI 不确定用户意图时，默认使用伪删除
 - **回收站路径**：`~/.agent-trash/`（用户主目录下），所有项目共享一个回收站
